@@ -12,6 +12,11 @@
 #define BLU   "\x1b[34m"
 #define RESET "\x1b[0m"
 
+typedef struct s_dongle
+{
+    pthread_mutex_t mutex;
+    long last_release;
+} t_dongle;
 
 typedef struct s_args
 {
@@ -30,8 +35,8 @@ typedef struct s_thread
     long start_time;
     long last_compile;
     t_args requirements;
-    pthread_mutex_t *right_dongle;
-    pthread_mutex_t *left_dongle;
+    t_dongle *right_dongle;
+    t_dongle *left_dongle;
 } t_thread;
 
 long get_time()
@@ -47,30 +52,42 @@ void* routine(void *arg)
     t_thread *data = (t_thread *)arg;
     int i = 0;
     int turns = data->requirements.number_of_compiles_required;
+    int time_to_burnout = data->requirements.time_to_burnout;
+    int time_to_compile = data->requirements.time_to_compile;
+    int time_to_debug = data->requirements.time_to_debug;
+    int time_to_refactor = data->requirements.time_to_refactor;
+    int dongle_cooldown = data->requirements.dongle_cooldown;
     while(i++ < turns){
         if (data->id % 2){
-        pthread_mutex_lock(data->right_dongle);
-        pthread_mutex_lock(data->left_dongle);
+        pthread_mutex_lock(&data->right_dongle->mutex);
+        pthread_mutex_lock(&data->left_dongle->mutex);
         }else{
-        pthread_mutex_lock(data->left_dongle);
-        pthread_mutex_lock(data->right_dongle);
+        pthread_mutex_lock(&data->left_dongle->mutex);
+        pthread_mutex_lock(&data->right_dongle->mutex);
         }
-        // printf("%d has taken right dongle\n", data->id);
-        // printf("%d has taken left dongle\n", data->id);
+        // printf("%d has taken right dongle.mutex\n", data->id);
+        // printf("%d has taken left dongle.mutex\n", data->id);
+        printf("diff bet last compile and now %ld, time to burnout %d\n", get_time() - data->last_compile, time_to_burnout);
+        if (get_time() - data->last_compile > time_to_burnout)
+        {
+            printf("you failde dumbass\n");
+            break;
+        }
         printf(GRN "%ld %d is compiling\n" RESET, get_time() - data->start_time, data->id);
         data->last_compile = get_time();
-        usleep(1000);
+        usleep(time_to_compile*1000);
 
-        pthread_mutex_unlock(data->right_dongle);
-        pthread_mutex_unlock(data->left_dongle);
+        // usleep(dongle_cooldown*1000);
+        pthread_mutex_unlock(&data->right_dongle->mutex);
+        pthread_mutex_unlock(&data->left_dongle->mutex);
         // printf("%d has droped right dongle\n", data->id);
         // printf("%d has droped left dongle\n", data->id);
 
         printf(RED "%d is debugging\n" RESET, data->id);
-        usleep(1000);
+        usleep(time_to_debug*1000);
 
         printf(BLU "%d is refactoring\n" RESET, data->id);
-        usleep(1000);
+        usleep(time_to_refactor * 1000);
         printf(YEL "coder %d turn %d\n" RESET, data->id, i);
         // usleep(500);
     }
@@ -79,6 +96,12 @@ void* routine(void *arg)
 
 
 int main(int argc, char* argv[]) {
+    if (argc < 9)
+    {
+        fprintf(stderr, "Usage: %s n burnout compile debug refactor turns cooldown scheduler\n", argv[0]);
+        return 1;
+    }
+
     int n = atoi(argv[1]);
     t_args requirements;
     requirements.time_to_burnout = atoi(argv[2]);
@@ -90,10 +113,11 @@ int main(int argc, char* argv[]) {
     requirements.scheduler = argv[8];
     pthread_t t[n];
     t_thread data[n];
-    pthread_mutex_t mutex[n];
+    t_dongle mutex[n];
 
     for (int i = 0; i < n; i++){
-        pthread_mutex_init(&mutex[i], NULL);
+        mutex[i].last_release = get_time() + requirements.dongle_cooldown;
+        pthread_mutex_init(&mutex[i].mutex, NULL);
     }
     
     for (int i = 0; i < n; i++){
@@ -103,6 +127,7 @@ int main(int argc, char* argv[]) {
         data[i].right_dongle = &mutex[(i + 1) % n];
         data[i].start_time = get_time();
         data[i].requirements = requirements;
+        data[i].last_compile = get_time();
         if (pthread_create(&t[i], NULL, &routine, &data[i])) {
             return 1;
         }
@@ -115,7 +140,7 @@ int main(int argc, char* argv[]) {
         printf("thread %d finished it execution\n", i + 1);
     }
     for (int i = 0; i < n; i++){
-        pthread_mutex_destroy(&mutex[i]);
+        pthread_mutex_destroy(&mutex[i].mutex);
     }
     return 0;
 }
