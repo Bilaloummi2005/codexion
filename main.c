@@ -1,3 +1,4 @@
+#define _POSIX_C_SOURCE 199309L
 #include <stdlib.h>
 #include <stdio.h>
 #include <unistd.h>
@@ -21,6 +22,7 @@ typedef struct s_simulation {
 typedef struct s_dongle
 {
     pthread_mutex_t mutex;
+    pthread_cond_t  cond;
     long last_release;
 } t_dongle;
 
@@ -56,6 +58,56 @@ long get_time()
     return (tv.tv_sec * 1000 + tv.tv_usec / 1000);
 }
 
+
+void lock_dongle(t_dongle *first_dongle, t_dongle *second_dongle, int dongle_cooldown)
+{
+    // Phase 1 - hold nothing, just wait for cooldown to pass
+    while (get_time() - first_dongle->last_release < dongle_cooldown)
+        usleep(1000);
+    while (get_time() - second_dongle->last_release < dongle_cooldown)
+        usleep(1000);
+
+    // Phase 2 - grab the mutex and re-verify
+    pthread_mutex_lock(&first_dongle->mutex);
+    while (get_time() - first_dongle->last_release < dongle_cooldown)
+    {
+        struct timespec ts;
+        clock_gettime(CLOCK_REALTIME, &ts);  // first arg is the clock id
+        ts.tv_nsec += 1000 * 1000;           // add 1ms
+        if (ts.tv_nsec >= 1000000000)        // handle overflow
+        {
+            ts.tv_sec += 1;
+            ts.tv_nsec -= 1000000000;
+        }
+        pthread_cond_timedwait(&first_dongle->cond, &first_dongle->mutex, &ts);
+    }
+    pthread_mutex_lock(&second_dongle->mutex);
+    while (get_time() - second_dongle->last_release < dongle_cooldown)
+    {
+        struct timespec ts;
+        clock_gettime(CLOCK_REALTIME, &ts);  // first arg is the clock id
+        ts.tv_nsec += 1000 * 1000;           // add 1ms
+        if (ts.tv_nsec >= 1000000000)        // handle overflow
+        {
+            ts.tv_sec += 1;
+            ts.tv_nsec -= 1000000000;
+        }
+        pthread_cond_timedwait(&second_dongle->cond, &second_dongle->mutex, &ts);
+    }
+    // mutex is held, cooldown passed - dongle is ours
+}
+
+void realise_dongle(t_dongle *first_dongle, t_dongle *second_dongle){
+    first_dongle->last_release = get_time();
+    pthread_cond_broadcast(&first_dongle->cond);
+    pthread_mutex_unlock(&first_dongle->mutex);
+
+    second_dongle->last_release = get_time();
+    pthread_cond_broadcast(&second_dongle->cond);
+    pthread_mutex_unlock(&second_dongle->mutex);
+}
+
+
 void* routine(void *arg)
 {
     t_thread *data = (t_thread *)arg;
@@ -69,13 +121,9 @@ void* routine(void *arg)
 
     while(!data->requirements->burned_out){
         if (data->id % 2){
-            // printf("%d %d\n", get_time() - data->right_dongle->last_release, data->requirements.dongle_cooldown);
-            pthread_mutex_lock(&data->right_dongle->mutex);
-            pthread_mutex_lock(&data->left_dongle->mutex);
+            lock_dongle(data->right_dongle, data->left_dongle, dongle_cooldown);
         }else{
-            // printf("%d %d\n", get_time() - data->right_dongle->last_release, data->requirements.dongle_cooldown);
-            pthread_mutex_lock(&data->left_dongle->mutex);
-            pthread_mutex_lock(&data->right_dongle->mutex);
+            lock_dongle(data->left_dongle, data->right_dongle, dongle_cooldown);;
         }
         printf("diff bet last compile and now %ld, time to burnout %d\n", get_time() - data->last_compile, time_to_burnout);
         if (get_time() - data->last_compile > time_to_burnout)
@@ -87,11 +135,17 @@ void* routine(void *arg)
         data->last_compile = get_time();
         usleep(time_to_compile*1000);
 
-        // usleep(dongle_cooldown*1000);
-        data->right_dongle->last_release = get_time();
-        data->left_dongle->last_release = get_time();
-        pthread_mutex_unlock(&data->right_dongle->mutex);
-        pthread_mutex_unlock(&data->left_dongle->mutex);
+        if (data->id % 2)
+            realise_dongle(data->right_dongle, data->left_dongle);
+        else
+            realise_dongle(data->left_dongle, data->right_dongle);
+        // data->right_dongle->last_release = get_time();
+        // pthread_cond_broadcast(&data->right_dongle->cond);
+        // pthread_mutex_unlock(&data->right_dongle->mutex);
+
+        // data->left_dongle->last_release = get_time();
+        // pthread_cond_broadcast(&data->left_dongle->cond);
+        // pthread_mutex_unlock(&data->left_dongle->mutex);
         // printf("%d has droped right dongle\n", data->id);
         // printf("%d has droped left dongle\n", data->id);
 
@@ -159,6 +213,7 @@ int main(int argc, char* argv[]) {
 
     for (int i = 0; i < n; i++){
         mutex[i].last_release = get_time() - requirements.dongle_cooldown;
+        pthread_cond_init(&mutex[i].cond, NULL);
         pthread_mutex_init(&mutex[i].mutex, NULL);
     }
     
@@ -188,6 +243,7 @@ int main(int argc, char* argv[]) {
     }
     for (int i = 0; i < n; i++){
         pthread_mutex_destroy(&mutex[i].mutex);
+        pthread_cond_destroy(&mutex[i].cond);
     }
     return 0;
 }
