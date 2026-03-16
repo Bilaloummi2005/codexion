@@ -37,6 +37,7 @@ typedef struct s_args
     long n_coders;
     char* scheduler;
     int burned_out;
+    pthread_mutex_t log_mutex;
 } t_args;
 
 typedef struct s_thread
@@ -45,6 +46,7 @@ typedef struct s_thread
     int compile_count;
     long start_time;
     long last_compile;
+    pthread_mutex_t state_mutex;
     t_args *requirements;
     t_dongle *right_dongle;
     t_dongle *left_dongle;
@@ -58,15 +60,33 @@ long get_time()
     return (tv.tv_sec * 1000 + tv.tv_usec / 1000);
 }
 
-
-void lock_dongle(t_dongle *first_dongle, t_dongle *second_dongle, int dongle_cooldown)
+void log_state(t_thread *data, char *msg, char *clr)
 {
+    long t;
+    int id;
+    pthread_mutex_lock(&data->requirements->log_mutex);
+    t = get_time() - data->start_time;
+    id = data->id;
+    printf("%s%ld %d %s\n" RESET, clr, t, id, msg);
+    pthread_mutex_unlock(&data->requirements->log_mutex);
+}
+
+int lock_dongle(t_dongle *first_dongle, t_dongle *second_dongle, t_thread *data)
+{
+    int dongle_cooldown;
+
+    dongle_cooldown = data->requirements->dongle_cooldown;
     // Phase 1 - hold nothing, just wait for cooldown to pass
     while (get_time() - first_dongle->last_release < dongle_cooldown)
         usleep(1000);
+    if (data->requirements->burned_out)
+        return 0;
+
     while (get_time() - second_dongle->last_release < dongle_cooldown)
         usleep(1000);
-
+    if (data->requirements->burned_out)
+        return 0;
+    
     // Phase 2 - grab the mutex and re-verify
     pthread_mutex_lock(&first_dongle->mutex);
     while (get_time() - first_dongle->last_release < dongle_cooldown)
@@ -81,6 +101,9 @@ void lock_dongle(t_dongle *first_dongle, t_dongle *second_dongle, int dongle_coo
         }
         pthread_cond_timedwait(&first_dongle->cond, &first_dongle->mutex, &ts);
     }
+    if (data->requirements->burned_out)
+        return 0;
+    log_state(data, "has taken a dongle", YEL);
     pthread_mutex_lock(&second_dongle->mutex);
     while (get_time() - second_dongle->last_release < dongle_cooldown)
     {
@@ -94,6 +117,11 @@ void lock_dongle(t_dongle *first_dongle, t_dongle *second_dongle, int dongle_coo
         }
         pthread_cond_timedwait(&second_dongle->cond, &second_dongle->mutex, &ts);
     }
+    if (data->requirements->burned_out)
+        return 0;
+    log_state(data, "has taken a dongle", YEL);
+    data->last_compile = get_time();
+    return 1;
     // mutex is held, cooldown passed - dongle is ours
 }
 
@@ -120,42 +148,43 @@ void* routine(void *arg)
     int dongle_cooldown = data->requirements->dongle_cooldown;
 
     while(!data->requirements->burned_out){
-        if (data->id % 2){
-            lock_dongle(data->right_dongle, data->left_dongle, dongle_cooldown);
-        }else{
-            lock_dongle(data->left_dongle, data->right_dongle, dongle_cooldown);;
-        }
-        printf("diff bet last compile and now %ld, time to burnout %d\n", get_time() - data->last_compile, time_to_burnout);
-        if (get_time() - data->last_compile > time_to_burnout)
-        {
-            printf("you failde dumbass\n");
-            break;
-        }
-        printf(GRN "%ld %d is compiling\n" RESET, get_time() - data->start_time, data->id);
+        if (data->id % 2)
+            lock_dongle(data->right_dongle, data->left_dongle, data);
+        else
+            lock_dongle(data->left_dongle, data->right_dongle, data);
+        
+        if(data->requirements->burned_out)
+            return (realise_dongle(data->right_dongle, data->left_dongle),NULL);
+        // printf("diff bet last compile and now %ld, time to burnout %d\n", get_time() - data->last_compile, time_to_burnout);
+        // if (get_time() - data->last_compile > time_to_burnout)
+        // {
+        //     printf("you failde dumbass\n");
+        //     break;
+        // }
+        // printf(GRN "%ld %d is compiling\n" RESET, get_time() - data->start_time, data->id);
+        pthread_mutex_lock(&data->state_mutex);
         data->last_compile = get_time();
+        pthread_mutex_unlock(&data->state_mutex);
+        log_state(data, "is compiling", GRN);
         usleep(time_to_compile*1000);
 
         if (data->id % 2)
             realise_dongle(data->right_dongle, data->left_dongle);
         else
             realise_dongle(data->left_dongle, data->right_dongle);
-        // data->right_dongle->last_release = get_time();
-        // pthread_cond_broadcast(&data->right_dongle->cond);
-        // pthread_mutex_unlock(&data->right_dongle->mutex);
+        
+        pthread_mutex_lock(&data->state_mutex);
+        data->compile_count++;
+        pthread_mutex_unlock(&data->state_mutex);
 
-        // data->left_dongle->last_release = get_time();
-        // pthread_cond_broadcast(&data->left_dongle->cond);
-        // pthread_mutex_unlock(&data->left_dongle->mutex);
-        // printf("%d has droped right dongle\n", data->id);
-        // printf("%d has droped left dongle\n", data->id);
-
-        printf(RED "%d is debugging\n" RESET, data->id);
+        log_state(data, "is debugging", RED);
+        // printf(RED "%d is debugging\n" RESET, data->id);
         usleep(time_to_debug*1000);
 
-        printf(BLU "%d is refactoring\n" RESET, data->id);
+        log_state(data, "is refactoring", BLU);
+        // printf(BLU "%d is refactoring\n" RESET, data->id);  
         usleep(time_to_refactor * 1000);
-        printf(YEL "coder %d turn %d\n" RESET, data->id, *turns);
-        data->compile_count++;
+        // printf(YEL "coder %d turn %d\n" RESET, data->id, *turns);
         // usleep(500);
     }
     return NULL;
@@ -167,17 +196,26 @@ void* monitor(void *arg){
     long time_to_burnout = coders[0].requirements->time_to_burnout;
     long required = coders[0].requirements->number_of_compiles_required; 
     int done;
+    long last_compile;
+    int count;
     while (1){
         usleep(1000);
         for (int i=0; i < n; i++){
-            if (get_time() - coders[i].last_compile > time_to_burnout){
+            pthread_mutex_lock(&coders[i].state_mutex);
+            last_compile = coders[i].last_compile;
+            pthread_mutex_unlock(&coders[i].state_mutex);
+            if (get_time() - last_compile > time_to_burnout){
+                log_state(&coders[i], "burned out", "");
                 coders[i].requirements->burned_out = 1;
                 return NULL;
             }
         }
         done = 1;
         for (int i=0; i < n; i++){
-            if (coders[i].compile_count < required)
+            pthread_mutex_lock(&coders[i].state_mutex);
+            count = coders[i].compile_count;
+            pthread_mutex_unlock(&coders[i].state_mutex);
+            if (count < required)
                 done = 0;
         }
         if (done){
@@ -206,6 +244,7 @@ int main(int argc, char* argv[]) {
     requirements.dongle_cooldown = atoi(argv[7]);
     requirements.scheduler = argv[8];
     requirements.burned_out = 0;
+    pthread_mutex_init(&requirements.log_mutex, NULL);
     pthread_t t[n];
     t_thread data[n];
     t_dongle mutex[n];
@@ -220,6 +259,7 @@ int main(int argc, char* argv[]) {
 
     for (int i = 0; i < n; i++){
         // printf("thread %d started execution:\n", i);
+        pthread_mutex_init(&data[i].state_mutex, NULL);
         data[i].id = i + 1;
         data[i].compile_count = 0;
         data[i].left_dongle = &mutex[i];
@@ -239,7 +279,7 @@ int main(int argc, char* argv[]) {
         if (pthread_join(t[i], NULL)) {
             return 1;
         }
-        printf("thread %d finished it execution\n", i + 1);
+        // printf("thread %d finished it execution\n", i + 1);
     }
     for (int i = 0; i < n; i++){
         pthread_mutex_destroy(&mutex[i].mutex);
