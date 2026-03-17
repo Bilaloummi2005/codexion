@@ -19,6 +19,12 @@ typedef struct s_simulation {
     pthread_mutex_t log_mutex;  // serializes all printf output
 } t_simulation;
 
+typedef struct s_waiter
+{
+    int  id;
+    long deadline;  // last_compile + time_to_burnout
+} t_waiter;
+
 typedef struct s_dongle
 {
     pthread_mutex_t mutex;
@@ -26,6 +32,8 @@ typedef struct s_dongle
     long last_release;
     int             queue_size;         // how many are waiting
     int             *queue;  // waiting coder IDs in order
+    t_waiter *edf_q;
+    int edf_size;
 } t_dongle;
 
 typedef struct s_args
@@ -73,27 +81,86 @@ void log_state(t_thread *data, char *msg, char *clr)
     pthread_mutex_unlock(&data->requirements->log_mutex);
 }
 
+void remove_from_queue(t_dongle *dongle)
+{
+    int i;
+    i = 0;
+    while (i < dongle->queue_size - 1)
+    {
+        dongle->queue[i] = dongle->queue[i + 1];
+        i++;
+    }
+    dongle->queue_size--;
+}
+
+// int lock_dongle(t_dongle *first_dongle, t_dongle *second_dongle, t_thread *data)
+// {
+//     int dongle_cooldown;
+
+//     dongle_cooldown = data->requirements->dongle_cooldown;
+
+
+//     // Phase 1 - hold nothing, just wait for cooldown to pass
+//     while (get_time() - first_dongle->last_release < dongle_cooldown)
+//         usleep(1000);
+//     if (data->requirements->burned_out)
+//         return 0;
+
+//     while (get_time() - second_dongle->last_release < dongle_cooldown)
+//         usleep(1000);
+//     if (data->requirements->burned_out)
+//         return 0;
+    
+//     // Phase 2 - grab the mutex and re-verify
+//     pthread_mutex_lock(&first_dongle->mutex);
+//     while (get_time() - first_dongle->last_release < dongle_cooldown)
+//     {
+//         struct timespec ts;
+//         clock_gettime(CLOCK_REALTIME, &ts);  // first arg is the clock id
+//         ts.tv_nsec += 1000 * 1000;           // add 1ms
+//         if (ts.tv_nsec >= 1000000000)        // handle overflow
+//         {
+//             ts.tv_sec += 1;
+//             ts.tv_nsec -= 1000000000;
+//         }
+//         pthread_cond_timedwait(&first_dongle->cond, &first_dongle->mutex, &ts);
+//     }
+//     if (data->requirements->burned_out)
+//         return 0;
+//     log_state(data, "has taken a dongle", YEL);
+//     pthread_mutex_lock(&second_dongle->mutex);
+//     while (get_time() - second_dongle->last_release < dongle_cooldown)
+//     {
+//         struct timespec ts;
+//         clock_gettime(CLOCK_REALTIME, &ts);  // first arg is the clock id
+//         ts.tv_nsec += 1000 * 1000;           // add 1ms
+//         if (ts.tv_nsec >= 1000000000)        // handle overflow
+//         {
+//             ts.tv_sec += 1;
+//             ts.tv_nsec -= 1000000000;
+//         }
+//         pthread_cond_timedwait(&second_dongle->cond, &second_dongle->mutex, &ts);
+//     }
+//     if (data->requirements->burned_out)
+//         return 0;
+//     log_state(data, "has taken a dongle", YEL);
+//     data->last_compile = get_time();
+//     return 1;
+//     // mutex is held, cooldown passed - dongle is ours
+// }
+
 int lock_dongle(t_dongle *first_dongle, t_dongle *second_dongle, t_thread *data)
 {
     int dongle_cooldown;
-
+    struct timespec ts;
     dongle_cooldown = data->requirements->dongle_cooldown;
-    // Phase 1 - hold nothing, just wait for cooldown to pass
-    while (get_time() - first_dongle->last_release < dongle_cooldown)
-        usleep(1000);
-    if (data->requirements->burned_out)
-        return 0;
 
-    while (get_time() - second_dongle->last_release < dongle_cooldown)
-        usleep(1000);
-    if (data->requirements->burned_out)
-        return 0;
-    
-    // Phase 2 - grab the mutex and re-verify
     pthread_mutex_lock(&first_dongle->mutex);
-    while (get_time() - first_dongle->last_release < dongle_cooldown)
-    {
-        struct timespec ts;
+
+    first_dongle->queue[first_dongle->queue_size] = data->id;
+    first_dongle->queue_size++;
+
+    while (first_dongle->queue[0] != data->id){
         clock_gettime(CLOCK_REALTIME, &ts);  // first arg is the clock id
         ts.tv_nsec += 1000 * 1000;           // add 1ms
         if (ts.tv_nsec >= 1000000000)        // handle overflow
@@ -103,13 +170,40 @@ int lock_dongle(t_dongle *first_dongle, t_dongle *second_dongle, t_thread *data)
         }
         pthread_cond_timedwait(&first_dongle->cond, &first_dongle->mutex, &ts);
     }
-    if (data->requirements->burned_out)
+
+    if (data->requirements->burned_out){
+        remove_from_queue(first_dongle);
+        pthread_cond_broadcast(&first_dongle->cond);
+        pthread_mutex_unlock(&first_dongle->mutex);
         return 0;
+    }
+    // Phase 1 - hold nothing, just wait for cooldown to pass
+    while (get_time() - first_dongle->last_release < dongle_cooldown){
+        clock_gettime(CLOCK_REALTIME, &ts);  // first arg is the clock id
+        ts.tv_nsec += 1000 * 1000;           // add 1ms
+        if (ts.tv_nsec >= 1000000000)        // handle overflow
+        {
+            ts.tv_sec += 1;
+            ts.tv_nsec -= 1000000000;
+        }
+        pthread_cond_timedwait(&first_dongle->cond, &first_dongle->mutex, &ts);
+    }
+
+    if (data->requirements->burned_out){
+        pthread_cond_broadcast(&first_dongle->cond);
+        pthread_mutex_unlock(&first_dongle->mutex);
+        return 0;
+    }
+
+    remove_from_queue(first_dongle);
     log_state(data, "has taken a dongle", YEL);
+
     pthread_mutex_lock(&second_dongle->mutex);
-    while (get_time() - second_dongle->last_release < dongle_cooldown)
-    {
-        struct timespec ts;
+
+    second_dongle->queue[second_dongle->queue_size] = data->id;
+    second_dongle->queue_size++;
+
+    while (second_dongle->queue[0] != data->id){
         clock_gettime(CLOCK_REALTIME, &ts);  // first arg is the clock id
         ts.tv_nsec += 1000 * 1000;           // add 1ms
         if (ts.tv_nsec >= 1000000000)        // handle overflow
@@ -119,13 +213,40 @@ int lock_dongle(t_dongle *first_dongle, t_dongle *second_dongle, t_thread *data)
         }
         pthread_cond_timedwait(&second_dongle->cond, &second_dongle->mutex, &ts);
     }
-    if (data->requirements->burned_out)
+
+    if (data->requirements->burned_out){
+        remove_from_queue(second_dongle);
+        pthread_cond_broadcast(&second_dongle->cond);
+        pthread_mutex_unlock(&first_dongle->mutex);
+        pthread_mutex_unlock(&second_dongle->mutex);
         return 0;
+    }
+
+    while (get_time() - second_dongle->last_release < dongle_cooldown){
+        clock_gettime(CLOCK_REALTIME, &ts);  // first arg is the clock id
+        ts.tv_nsec += 1000 * 1000;           // add 1ms
+        if (ts.tv_nsec >= 1000000000)        // handle overflow
+        {
+            ts.tv_sec += 1;
+            ts.tv_nsec -= 1000000000;
+        }
+        pthread_cond_timedwait(&second_dongle->cond, &second_dongle->mutex, &ts);
+    }
+    
+    if (data->requirements->burned_out){
+        remove_from_queue(second_dongle);
+        pthread_cond_broadcast(&second_dongle->cond);
+        pthread_mutex_unlock(&second_dongle->mutex);
+        pthread_mutex_unlock(&first_dongle->mutex);
+        return 0;
+    }
+
+    remove_from_queue(second_dongle);
     log_state(data, "has taken a dongle", YEL);
-    data->last_compile = get_time();
     return 1;
     // mutex is held, cooldown passed - dongle is ours
 }
+
 
 void realise_dongle(t_dongle *first_dongle, t_dongle *second_dongle){
     first_dongle->last_release = get_time();
@@ -137,11 +258,21 @@ void realise_dongle(t_dongle *first_dongle, t_dongle *second_dongle){
     pthread_mutex_unlock(&second_dongle->mutex);
 }
 
+// void add_to_queue(t_thread *data){
+//     int id = data->id;
+//     pthread_mutex_lock(&data->right_dongle->mutex);
+//     pthread_mutex_lock(&data->left_dongle->mutex);
+//     data->right_dongle->queue[data->right_dongle->queue_size] = id;
+//     data->right_dongle->queue_size++;
+//     data->left_dongle->queue[data->left_dongle->queue_size] = id;
+//     data->left_dongle->queue_size++;
+//     pthread_mutex_unlock(&data->right_dongle->mutex);
+//     pthread_mutex_unlock(&data->left_dongle->mutex);
+// }
 
 void* routine(void *arg)
 {
     t_thread *data = (t_thread *)arg;
-    int i = 0;
     int *turns = &data->compile_count;
     int time_to_burnout = data->requirements->time_to_burnout;
     int time_to_compile = data->requirements->time_to_compile;
@@ -150,6 +281,7 @@ void* routine(void *arg)
     int dongle_cooldown = data->requirements->dongle_cooldown;
 
     while(!data->requirements->burned_out){
+        // add_to_queue(data);
         if (data->id % 2)
             lock_dongle(data->right_dongle, data->left_dongle, data);
         else
@@ -157,13 +289,7 @@ void* routine(void *arg)
         
         if(data->requirements->burned_out)
             return (realise_dongle(data->right_dongle, data->left_dongle),NULL);
-        // printf("diff bet last compile and now %ld, time to burnout %d\n", get_time() - data->last_compile, time_to_burnout);
-        // if (get_time() - data->last_compile > time_to_burnout)
-        // {
-        //     printf("you failde dumbass\n");
-        //     break;
-        // }
-        // printf(GRN "%ld %d is compiling\n" RESET, get_time() - data->start_time, data->id);
+
         pthread_mutex_lock(&data->state_mutex);
         data->last_compile = get_time();
         pthread_mutex_unlock(&data->state_mutex);
@@ -180,14 +306,10 @@ void* routine(void *arg)
         pthread_mutex_unlock(&data->state_mutex);
 
         log_state(data, "is debugging", RED);
-        // printf(RED "%d is debugging\n" RESET, data->id);
         usleep(time_to_debug*1000);
 
         log_state(data, "is refactoring", BLU);
-        // printf(BLU "%d is refactoring\n" RESET, data->id);  
         usleep(time_to_refactor * 1000);
-        // printf(YEL "coder %d turn %d\n" RESET, data->id, *turns);
-        // usleep(500);
     }
     return NULL;
 }
@@ -255,6 +377,8 @@ int main(int argc, char* argv[]) {
     for (int i = 0; i < n; i++){
         mutex[i].last_release = get_time() - requirements.dongle_cooldown;
         mutex[i].queue_size = 0;
+        mutex[i].edf_size = 0;
+        mutex[i].edf_q = malloc(n * sizeof(t_waiter));
         mutex[i].queue = malloc(n * sizeof(int));
         pthread_cond_init(&mutex[i].cond, NULL);
         pthread_mutex_init(&mutex[i].mutex, NULL);
@@ -288,6 +412,7 @@ int main(int argc, char* argv[]) {
     for (int i = 0; i < n; i++){
         pthread_mutex_destroy(&mutex[i].mutex);
         free(mutex[i].queue);
+        free(mutex[i].edf_q);
         pthread_cond_destroy(&mutex[i].cond);
     }
     return 0;
