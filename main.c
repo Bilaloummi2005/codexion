@@ -24,6 +24,8 @@ typedef struct s_dongle
     pthread_mutex_t mutex;
     pthread_cond_t  cond;
     long last_release;
+    int             queue_size;         // how many are waiting
+    int             *queue;  // waiting coder IDs in order
 } t_dongle;
 
 typedef struct s_args
@@ -252,6 +254,8 @@ int main(int argc, char* argv[]) {
 
     for (int i = 0; i < n; i++){
         mutex[i].last_release = get_time() - requirements.dongle_cooldown;
+        mutex[i].queue_size = 0;
+        mutex[i].queue = malloc(n * sizeof(int));
         pthread_cond_init(&mutex[i].cond, NULL);
         pthread_mutex_init(&mutex[i].mutex, NULL);
     }
@@ -283,6 +287,7 @@ int main(int argc, char* argv[]) {
     }
     for (int i = 0; i < n; i++){
         pthread_mutex_destroy(&mutex[i].mutex);
+        free(mutex[i].queue);
         pthread_cond_destroy(&mutex[i].cond);
     }
     return 0;
