@@ -6,6 +6,7 @@
 #include <time.h>
 #include <stdio.h>
 #include <sys/time.h>  
+#include <string.h>
 
 #define RED   "\x1b[31m"
 #define GRN   "\x1b[32m"
@@ -187,108 +188,221 @@ void remove_from_edf_queue(t_dongle *dongle, int id)
     }
 }
 
-int lock_dongle(t_dongle *first_dongle, t_dongle *second_dongle, t_thread *data)
-{
-    int dongle_cooldown;
-    struct timespec ts;
-    dongle_cooldown = data->requirements->dongle_cooldown;
+// int lock_dongle2(t_dongle *first_dongle, t_dongle *second_dongle, t_thread *data)
+// {
+//     int dongle_cooldown;
+//     struct timespec ts;
+//     dongle_cooldown = data->requirements->dongle_cooldown;
 
-    pthread_mutex_lock(&first_dongle->mutex);
+//     pthread_mutex_lock(&first_dongle->mutex);
 
-    first_dongle->queue[first_dongle->queue_size] = data->id;
-    first_dongle->queue_size++;
+//     first_dongle->queue[first_dongle->queue_size] = data->id;
+//     first_dongle->queue_size++;
 
-    while (first_dongle->queue[0] != data->id){
-        clock_gettime(CLOCK_REALTIME, &ts);  // first arg is the clock id
-        ts.tv_nsec += 1000 * 1000;           // add 1ms
-        if (ts.tv_nsec >= 1000000000)        // handle overflow
-        {
-            ts.tv_sec += 1;
-            ts.tv_nsec -= 1000000000;
-        }
-        pthread_cond_timedwait(&first_dongle->cond, &first_dongle->mutex, &ts);
-    }
+//     while (first_dongle->queue[0] != data->id){
+//         clock_gettime(CLOCK_REALTIME, &ts);  // first arg is the clock id
+//         ts.tv_nsec += 1000 * 1000;           // add 1ms
+//         if (ts.tv_nsec >= 1000000000)        // handle overflow
+//         {
+//             ts.tv_sec += 1;
+//             ts.tv_nsec -= 1000000000;
+//         }
+//         pthread_cond_timedwait(&first_dongle->cond, &first_dongle->mutex, &ts);
+//     }
 
-    if (data->requirements->burned_out){
-        remove_from_queue(first_dongle);
-        pthread_cond_broadcast(&first_dongle->cond);
-        pthread_mutex_unlock(&first_dongle->mutex);
-        return 0;
-    }
-    // Phase 1 - hold nothing, just wait for cooldown to pass
-    while (get_time() - first_dongle->last_release < dongle_cooldown){
-        clock_gettime(CLOCK_REALTIME, &ts);  // first arg is the clock id
-        ts.tv_nsec += 1000 * 1000;           // add 1ms
-        if (ts.tv_nsec >= 1000000000)        // handle overflow
-        {
-            ts.tv_sec += 1;
-            ts.tv_nsec -= 1000000000;
-        }
-        pthread_cond_timedwait(&first_dongle->cond, &first_dongle->mutex, &ts);
-    }
+//     if (data->requirements->burned_out){
+//         remove_from_queue(first_dongle);
+//         pthread_cond_broadcast(&first_dongle->cond);
+//         pthread_mutex_unlock(&first_dongle->mutex);
+//         return 0;
+//     }
+//     // Phase 1 - hold nothing, just wait for cooldown to pass
+//     while (get_time() - first_dongle->last_release < dongle_cooldown){
+//         clock_gettime(CLOCK_REALTIME, &ts);  // first arg is the clock id
+//         ts.tv_nsec += 1000 * 1000;           // add 1ms
+//         if (ts.tv_nsec >= 1000000000)        // handle overflow
+//         {
+//             ts.tv_sec += 1;
+//             ts.tv_nsec -= 1000000000;
+//         }
+//         pthread_cond_timedwait(&first_dongle->cond, &first_dongle->mutex, &ts);
+//     }
 
-    if (data->requirements->burned_out){
-        pthread_cond_broadcast(&first_dongle->cond);
-        pthread_mutex_unlock(&first_dongle->mutex);
-        return 0;
-    }
+//     if (data->requirements->burned_out){
+//         pthread_cond_broadcast(&first_dongle->cond);
+//         pthread_mutex_unlock(&first_dongle->mutex);
+//         return 0;
+//     }
 
-    remove_from_queue(first_dongle);
-    log_state(data, "has taken a dongle", YEL);
+//     remove_from_queue(first_dongle);
+//     log_state(data, "has taken a dongle", YEL);
 
-    if (data->requirements->n_coders == 1)
-        return 0;
+//     if (data->requirements->n_coders == 1)
+//         return 0;
 
-    pthread_mutex_lock(&second_dongle->mutex);
+//     pthread_mutex_lock(&second_dongle->mutex);
 
-    second_dongle->queue[second_dongle->queue_size] = data->id;
-    second_dongle->queue_size++;
+//     second_dongle->queue[second_dongle->queue_size] = data->id;
+//     second_dongle->queue_size++;
 
-    while (second_dongle->queue[0] != data->id){
-        clock_gettime(CLOCK_REALTIME, &ts);  // first arg is the clock id
-        ts.tv_nsec += 1000 * 1000;           // add 1ms
-        if (ts.tv_nsec >= 1000000000)        // handle overflow
-        {
-            ts.tv_sec += 1;
-            ts.tv_nsec -= 1000000000;
-        }
-        pthread_cond_timedwait(&second_dongle->cond, &second_dongle->mutex, &ts);
-    }
+//     while (second_dongle->queue[0] != data->id){
+//         clock_gettime(CLOCK_REALTIME, &ts);  // first arg is the clock id
+//         ts.tv_nsec += 1000 * 1000;           // add 1ms
+//         if (ts.tv_nsec >= 1000000000)        // handle overflow
+//         {
+//             ts.tv_sec += 1;
+//             ts.tv_nsec -= 1000000000;
+//         }
+//         pthread_cond_timedwait(&second_dongle->cond, &second_dongle->mutex, &ts);
+//     }
 
-    if (data->requirements->burned_out){
-        remove_from_queue(second_dongle);
-        pthread_cond_broadcast(&second_dongle->cond);
-        pthread_mutex_unlock(&first_dongle->mutex);
-        pthread_mutex_unlock(&second_dongle->mutex);
-        return 0;
-    }
+//     if (data->requirements->burned_out){
+//         remove_from_queue(second_dongle);
+//         pthread_cond_broadcast(&second_dongle->cond);
+//         pthread_mutex_unlock(&first_dongle->mutex);
+//         pthread_mutex_unlock(&second_dongle->mutex);
+//         return 0;
+//     }
 
-    while (get_time() - second_dongle->last_release < dongle_cooldown){
-        clock_gettime(CLOCK_REALTIME, &ts);  // first arg is the clock id
-        ts.tv_nsec += 1000 * 1000;           // add 1ms
-        if (ts.tv_nsec >= 1000000000)        // handle overflow
-        {
-            ts.tv_sec += 1;
-            ts.tv_nsec -= 1000000000;
-        }
-        pthread_cond_timedwait(&second_dongle->cond, &second_dongle->mutex, &ts);
-    }
+//     while (get_time() - second_dongle->last_release < dongle_cooldown){
+//         clock_gettime(CLOCK_REALTIME, &ts);  // first arg is the clock id
+//         ts.tv_nsec += 1000 * 1000;           // add 1ms
+//         if (ts.tv_nsec >= 1000000000)        // handle overflow
+//         {
+//             ts.tv_sec += 1;
+//             ts.tv_nsec -= 1000000000;
+//         }
+//         pthread_cond_timedwait(&second_dongle->cond, &second_dongle->mutex, &ts);
+//     }
     
-    if (data->requirements->burned_out){
-        remove_from_queue(second_dongle);
-        pthread_cond_broadcast(&second_dongle->cond);
-        pthread_mutex_unlock(&second_dongle->mutex);
-        pthread_mutex_unlock(&first_dongle->mutex);
-        return 0;
-    }
+//     if (data->requirements->burned_out){
+//         remove_from_queue(second_dongle);
+//         pthread_cond_broadcast(&second_dongle->cond);
+//         pthread_mutex_unlock(&second_dongle->mutex);
+//         pthread_mutex_unlock(&first_dongle->mutex);
+//         return 0;
+//     }
 
-    remove_from_queue(second_dongle);
-    log_state(data, "has taken a dongle", YEL);
-    return 1;
-    // mutex is held, cooldown passed - dongle is ours
+//     remove_from_queue(second_dongle);
+//     log_state(data, "has taken a dongle", YEL);
+//     return 1;
+//     // mutex is held, cooldown passed - dongle is ours
+// }
+
+// Swap two waiters in the heap
+void heap_swap(t_waiter *a, t_waiter *b)
+{
+    t_waiter tmp = *a;
+    *a = *b;
+    *b = tmp;
 }
 
-int lock_dongle2(t_dongle *first_dongle, t_dongle *second_dongle, t_thread *data)
+// Bubble up: after inserting at the end
+void heap_bubble_up(t_waiter *heap, int index)
+{
+    int parent;
+    while (index > 0)
+    {
+        parent = (index - 1) / 2;
+        if (heap[index].deadline < heap[parent].deadline
+            || (heap[index].deadline == heap[parent].deadline
+                && heap[index].id < heap[parent].id))
+        {
+            heap_swap(&heap[index], &heap[parent]);
+            index = parent;
+        }
+        else
+            break;
+    }
+}
+
+// Bubble down: after removing the root
+void heap_bubble_down(t_waiter *heap, int size, int index)
+{
+    int smallest;
+    int left;
+    int right;
+
+    while (1)
+    {
+        smallest = index;
+        left = 2 * index + 1;
+        right = 2 * index + 2;
+        if (left < size
+            && (heap[left].deadline < heap[smallest].deadline
+                || (heap[left].deadline == heap[smallest].deadline
+                    && heap[left].id < heap[smallest].id)))
+            smallest = left;
+        if (right < size
+            && (heap[right].deadline < heap[smallest].deadline
+                || (heap[right].deadline == heap[smallest].deadline
+                    && heap[right].id < heap[smallest].id)))
+            smallest = right;
+        if (smallest != index)
+        {
+            heap_swap(&heap[index], &heap[smallest]);
+            index = smallest;
+        }
+        else
+            break;
+    }
+}
+
+// Insert a waiter into the heap
+void heap_push(t_dongle *dongle, int id, long deadline)
+{
+    dongle->edf_q[dongle->edf_size].id = id;
+    dongle->edf_q[dongle->edf_size].deadline = deadline;
+    dongle->edf_size++;
+    heap_bubble_up(dongle->edf_q, dongle->edf_size - 1);
+}
+
+// Remove the root (the most urgent waiter)
+t_waiter heap_pop(t_dongle *dongle)
+{
+    t_waiter top = dongle->edf_q[0];
+    dongle->edf_size--;
+    dongle->edf_q[0] = dongle->edf_q[dongle->edf_size];
+    heap_bubble_down(dongle->edf_q, dongle->edf_size, 0);
+    return top;
+}
+
+// Find a waiter by ID and update their deadline, then fix heap
+void heap_update(t_dongle *dongle, int id, long new_deadline)
+{
+    int i = 0;
+    while (i < dongle->edf_size)
+    {
+        if (dongle->edf_q[i].id == id)
+        {
+            dongle->edf_q[i].deadline = new_deadline;
+            heap_bubble_up(dongle->edf_q, i);
+            heap_bubble_down(dongle->edf_q, dongle->edf_size, i);
+            return;
+        }
+        i++;
+    }
+}
+
+// Remove a specific waiter by ID (for when they leave without winning)
+void heap_remove_by_id(t_dongle *dongle, int id)
+{
+    int i = 0;
+    while (i < dongle->edf_size)
+    {
+        if (dongle->edf_q[i].id == id)
+        {
+            dongle->edf_size--;
+            dongle->edf_q[i] = dongle->edf_q[dongle->edf_size];
+            heap_bubble_up(dongle->edf_q, i);
+            heap_bubble_down(dongle->edf_q, dongle->edf_size, i);
+            return;
+        }
+        i++;
+    }
+}
+
+int lock_dongle(t_dongle *first_dongle, t_dongle *second_dongle, t_thread *data)
 {
     struct timespec ts;
     int dongle_cooldown = data->requirements->dongle_cooldown;
@@ -299,9 +413,7 @@ int lock_dongle2(t_dongle *first_dongle, t_dongle *second_dongle, t_thread *data
 
     if (use_edf) {
         // add to edf queue
-        first_dongle->edf_q[first_dongle->edf_size].id = data->id;
-        first_dongle->edf_q[first_dongle->edf_size].deadline = data->deadline;
-        first_dongle->edf_size++;
+        heap_push(first_dongle, data->id, data->deadline);
     } else {
         // add to fifo queue
         first_dongle->queue[first_dongle->queue_size] = data->id;
@@ -312,7 +424,7 @@ int lock_dongle2(t_dongle *first_dongle, t_dongle *second_dongle, t_thread *data
     while (1) {
         if (data->requirements->burned_out) {
             if (use_edf) {
-                remove_from_edf_queue(first_dongle, data->id);
+                heap_remove_by_id(first_dongle, data->id);  // when leaving due to burnout
                 pthread_cond_broadcast(&first_dongle->cond);
             } else {
                 remove_from_queue(first_dongle);
@@ -324,8 +436,8 @@ int lock_dongle2(t_dongle *first_dongle, t_dongle *second_dongle, t_thread *data
         if (use_edf) {
             // update my deadline before checking
             data->deadline = data->last_compile + data->requirements->time_to_burnout;
-            update_deadline_in_queue(first_dongle, data->id, data->deadline);
-            if (!someone_more_urgent(first_dongle, data) &&
+            heap_update(first_dongle, data->id, data->deadline);
+            if (first_dongle->edf_q[0].id == data->id &&
                 get_time() - first_dongle->last_release >= dongle_cooldown)
                 break;
         } else {
@@ -340,9 +452,9 @@ int lock_dongle2(t_dongle *first_dongle, t_dongle *second_dongle, t_thread *data
     }
 
     // remove from whichever queue
-    if (use_edf)
-        remove_from_edf_queue(first_dongle, data->id);
-    else
+    if (use_edf){
+        heap_pop(first_dongle);  // when you're the winner (you're at root)
+    }else
         remove_from_queue(first_dongle);
 
     log_state(data, "has taken a dongle", YEL);
@@ -351,9 +463,8 @@ int lock_dongle2(t_dongle *first_dongle, t_dongle *second_dongle, t_thread *data
     pthread_mutex_lock(&second_dongle->mutex);
 
     if (use_edf) {
-        second_dongle->edf_q[second_dongle->edf_size].id = data->id;
-        second_dongle->edf_q[second_dongle->edf_size].deadline = data->deadline;
-        second_dongle->edf_size++;
+        // add to edf queue
+        heap_push(second_dongle, data->id, data->deadline);
     } else {
         second_dongle->queue[second_dongle->queue_size] = data->id;
         second_dongle->queue_size++;
@@ -362,7 +473,7 @@ int lock_dongle2(t_dongle *first_dongle, t_dongle *second_dongle, t_thread *data
     while (1) {
         if (data->requirements->burned_out) {
             if (use_edf) {
-                remove_from_edf_queue(second_dongle, data->id);
+                heap_remove_by_id(second_dongle, data->id);  // when leaving due to burnout
                 pthread_cond_broadcast(&second_dongle->cond);
             } else {
                 remove_from_queue(second_dongle);
@@ -374,8 +485,8 @@ int lock_dongle2(t_dongle *first_dongle, t_dongle *second_dongle, t_thread *data
         }
         if (use_edf) {
             data->deadline = data->last_compile + data->requirements->time_to_burnout;
-            update_deadline_in_queue(second_dongle, data->id, data->deadline);
-            if (!someone_more_urgent(second_dongle, data) &&
+            heap_update(second_dongle, data->id, data->deadline);
+            if (second_dongle->edf_q[0].id == data->id &&
                 get_time() - second_dongle->last_release >= dongle_cooldown)
                 break;
         } else {
@@ -389,9 +500,9 @@ int lock_dongle2(t_dongle *first_dongle, t_dongle *second_dongle, t_thread *data
         pthread_cond_timedwait(&second_dongle->cond, &second_dongle->mutex, &ts);
     }
 
-    if (use_edf)
-        remove_from_edf_queue(second_dongle, data->id);
-    else
+    if (use_edf){
+        heap_pop(second_dongle);  // when you're the winner (you're at root)
+    }else
         remove_from_queue(second_dongle);
 
     log_state(data, "has taken a dongle", YEL);
@@ -432,12 +543,13 @@ void* routine(void *arg)
 
     while(!data->requirements->burned_out){
         // add_to_queue(data);
-        if (data->id % 2)
+        if (data->id % 2){
             if (!lock_dongle(data->right_dongle, data->left_dongle, data))
                 return 0;
-        else
+        }else{
             if (!lock_dongle(data->left_dongle, data->right_dongle, data))
                 return 0;
+        }
         
         if(data->requirements->burned_out)
             return (realise_dongle(data->right_dongle, data->left_dongle),NULL);
@@ -449,9 +561,9 @@ void* routine(void *arg)
         usleep(time_to_compile*1000);
 
         if (data->id % 2)
-            realise_dongle(data->right_dongle, data->left_dongle);
-        else
             realise_dongle(data->left_dongle, data->right_dongle);
+        else
+            realise_dongle(data->right_dongle, data->left_dongle);
         
         pthread_mutex_lock(&data->state_mutex);
         data->compile_count++;
