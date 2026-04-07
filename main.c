@@ -56,6 +56,7 @@ typedef struct s_thread
     int compile_count;
     long start_time;
     long last_compile;
+    long deadline;
     pthread_mutex_t state_mutex;
     t_args *requirements;
     t_dongle *right_dongle;
@@ -149,6 +150,43 @@ void remove_from_queue(t_dongle *dongle)
 //     // mutex is held, cooldown passed - dongle is ours
 // }
 
+// scan queue — is anyone more urgent than me?
+int someone_more_urgent(t_dongle *dongle, t_thread *data)
+{
+    for (int i = 0; i < dongle->edf_size; i++) {
+        if (dongle->edf_q[i].id != data->id &&
+            dongle->edf_q[i].deadline < data->deadline)
+            return 1;
+    }
+    return 0;
+}
+
+// update my deadline in the queue after a compile reset
+void update_deadline_in_queue(t_dongle *dongle, int id, long deadline)
+{
+    for (int i = 0; i < dongle->edf_size; i++) {
+        if (dongle->edf_q[i].id == id) {
+            dongle->edf_q[i].deadline = deadline;
+            return;
+        }
+    }
+}
+
+// remove by id instead of by position
+void remove_from_edf_queue(t_dongle *dongle, int id)
+{
+    for (int i = 0; i < dongle->edf_size; i++) {
+        if (dongle->edf_q[i].id == id) {
+            while (i < dongle->edf_size - 1) {
+                dongle->edf_q[i] = dongle->edf_q[i + 1];
+                i++;
+            }
+            dongle->edf_size--;
+            return;
+        }
+    }
+}
+
 int lock_dongle(t_dongle *first_dongle, t_dongle *second_dongle, t_thread *data)
 {
     int dongle_cooldown;
@@ -197,6 +235,9 @@ int lock_dongle(t_dongle *first_dongle, t_dongle *second_dongle, t_thread *data)
 
     remove_from_queue(first_dongle);
     log_state(data, "has taken a dongle", YEL);
+
+    if (data->requirements->n_coders == 1)
+        return 0;
 
     pthread_mutex_lock(&second_dongle->mutex);
 
@@ -247,6 +288,115 @@ int lock_dongle(t_dongle *first_dongle, t_dongle *second_dongle, t_thread *data)
     // mutex is held, cooldown passed - dongle is ours
 }
 
+int lock_dongle2(t_dongle *first_dongle, t_dongle *second_dongle, t_thread *data)
+{
+    struct timespec ts;
+    int dongle_cooldown = data->requirements->dongle_cooldown;
+    int use_edf = (strcmp(data->requirements->scheduler, "edf") == 0);
+
+    // ── FIRST DONGLE ──────────────────────────────────────────
+    pthread_mutex_lock(&first_dongle->mutex);
+
+    if (use_edf) {
+        // add to edf queue
+        first_dongle->edf_q[first_dongle->edf_size].id = data->id;
+        first_dongle->edf_q[first_dongle->edf_size].deadline = data->deadline;
+        first_dongle->edf_size++;
+    } else {
+        // add to fifo queue
+        first_dongle->queue[first_dongle->queue_size] = data->id;
+        first_dongle->queue_size++;
+    }
+
+    // wait until i am the most urgent (EDF) or first in line (FIFO)
+    while (1) {
+        if (data->requirements->burned_out) {
+            if (use_edf) {
+                remove_from_edf_queue(first_dongle, data->id);
+                pthread_cond_broadcast(&first_dongle->cond);
+            } else {
+                remove_from_queue(first_dongle);
+                pthread_cond_broadcast(&first_dongle->cond);
+            }
+            pthread_mutex_unlock(&first_dongle->mutex);
+            return 0;
+        }
+        if (use_edf) {
+            // update my deadline before checking
+            data->deadline = data->last_compile + data->requirements->time_to_burnout;
+            update_deadline_in_queue(first_dongle, data->id, data->deadline);
+            if (!someone_more_urgent(first_dongle, data) &&
+                get_time() - first_dongle->last_release >= dongle_cooldown)
+                break;
+        } else {
+            if (first_dongle->queue[0] == data->id &&
+                get_time() - first_dongle->last_release >= dongle_cooldown)
+                break;
+        }
+        clock_gettime(CLOCK_REALTIME, &ts);
+        ts.tv_nsec += 1000 * 1000;
+        if (ts.tv_nsec >= 1000000000) { ts.tv_sec++; ts.tv_nsec -= 1000000000; }
+        pthread_cond_timedwait(&first_dongle->cond, &first_dongle->mutex, &ts);
+    }
+
+    // remove from whichever queue
+    if (use_edf)
+        remove_from_edf_queue(first_dongle, data->id);
+    else
+        remove_from_queue(first_dongle);
+
+    log_state(data, "has taken a dongle", YEL);
+
+    // ── SECOND DONGLE ─────────────────────────────────────────
+    pthread_mutex_lock(&second_dongle->mutex);
+
+    if (use_edf) {
+        second_dongle->edf_q[second_dongle->edf_size].id = data->id;
+        second_dongle->edf_q[second_dongle->edf_size].deadline = data->deadline;
+        second_dongle->edf_size++;
+    } else {
+        second_dongle->queue[second_dongle->queue_size] = data->id;
+        second_dongle->queue_size++;
+    }
+
+    while (1) {
+        if (data->requirements->burned_out) {
+            if (use_edf) {
+                remove_from_edf_queue(second_dongle, data->id);
+                pthread_cond_broadcast(&second_dongle->cond);
+            } else {
+                remove_from_queue(second_dongle);
+                pthread_cond_broadcast(&second_dongle->cond);
+            }
+            pthread_mutex_unlock(&first_dongle->mutex);
+            pthread_mutex_unlock(&second_dongle->mutex);
+            return 0;
+        }
+        if (use_edf) {
+            data->deadline = data->last_compile + data->requirements->time_to_burnout;
+            update_deadline_in_queue(second_dongle, data->id, data->deadline);
+            if (!someone_more_urgent(second_dongle, data) &&
+                get_time() - second_dongle->last_release >= dongle_cooldown)
+                break;
+        } else {
+            if (second_dongle->queue[0] == data->id &&
+                get_time() - second_dongle->last_release >= dongle_cooldown)
+                break;
+        }
+        clock_gettime(CLOCK_REALTIME, &ts);
+        ts.tv_nsec += 1000 * 1000;
+        if (ts.tv_nsec >= 1000000000) { ts.tv_sec++; ts.tv_nsec -= 1000000000; }
+        pthread_cond_timedwait(&second_dongle->cond, &second_dongle->mutex, &ts);
+    }
+
+    if (use_edf)
+        remove_from_edf_queue(second_dongle, data->id);
+    else
+        remove_from_queue(second_dongle);
+
+    log_state(data, "has taken a dongle", YEL);
+    return 1;
+}
 
 void realise_dongle(t_dongle *first_dongle, t_dongle *second_dongle){
     first_dongle->last_release = get_time();
@@ -283,9 +433,11 @@ void* routine(void *arg)
     while(!data->requirements->burned_out){
         // add_to_queue(data);
         if (data->id % 2)
-            lock_dongle(data->right_dongle, data->left_dongle, data);
+            if (!lock_dongle(data->right_dongle, data->left_dongle, data))
+                return 0;
         else
-            lock_dongle(data->left_dongle, data->right_dongle, data);
+            if (!lock_dongle(data->left_dongle, data->right_dongle, data))
+                return 0;
         
         if(data->requirements->burned_out)
             return (realise_dongle(data->right_dongle, data->left_dongle),NULL);
@@ -388,13 +540,14 @@ int main(int argc, char* argv[]) {
     for (int i = 0; i < n; i++){
         // printf("thread %d started execution:\n", i);
         pthread_mutex_init(&data[i].state_mutex, NULL);
+        data[i].requirements = &requirements;
+        data[i].last_compile = get_time();
+        data[i].deadline = data[i].last_compile + data[i].requirements->time_to_burnout;
         data[i].id = i + 1;
         data[i].compile_count = 0;
         data[i].left_dongle = &mutex[i];
         data[i].right_dongle = &mutex[(i + 1) % n];
         data[i].start_time = get_time();
-        data[i].requirements = &requirements;
-        data[i].last_compile = get_time();
         if (pthread_create(&t[i], NULL, &routine, &data[i])) 
             return 1;
     }
