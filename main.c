@@ -559,21 +559,30 @@ void* routine(void *arg)
         pthread_mutex_unlock(&data->state_mutex);
         log_state(data, "is compiling", GRN);
         usleep(time_to_compile*1000);
-
+        
         if (data->id % 2)
             realise_dongle(data->left_dongle, data->right_dongle);
         else
             realise_dongle(data->right_dongle, data->left_dongle);
         
+        if(data->requirements->burned_out)
+            return (NULL);
+
         pthread_mutex_lock(&data->state_mutex);
         data->compile_count++;
         pthread_mutex_unlock(&data->state_mutex);
 
         log_state(data, "is debugging", RED);
         usleep(time_to_debug*1000);
+        
+        if(data->requirements->burned_out)
+            return (NULL);
 
         log_state(data, "is refactoring", BLU);
         usleep(time_to_refactor * 1000);
+        
+        if(data->requirements->burned_out)
+            return (NULL);
     }
     return NULL;
 }
