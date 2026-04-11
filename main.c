@@ -74,7 +74,7 @@ long get_time()
     return (tv.tv_sec * 1000 + tv.tv_usec / 1000);
 }
 
-void log_state(t_thread *data, char *msg, char *clr)
+void log_state2(t_thread *data, char *msg, char *clr)
 {
     long t;
     int id;
@@ -84,17 +84,21 @@ void log_state(t_thread *data, char *msg, char *clr)
     printf("%s%ld %d %s\n" RESET, clr, t, id, msg);
     pthread_mutex_unlock(&data->requirements->log_mutex);
 }
-// void log_state(t_thread *data, char *msg, char *clr)
-// {
-//     long t = get_time() - data->start_time;
-//     pthread_mutex_lock(&data->requirements->log_mutex);
-//     if (!data->requirements->burned_out || strcmp(msg, "burned out") == 0)
-//     {
-//         t = get_time() - data->start_time;
-//         printf("%s%ld %d %s\n" RESET, clr, t, data->id, msg);
-//     }
-//     pthread_mutex_unlock(&data->requirements->log_mutex);
-// }
+void log_state(t_thread *data, char *msg, char *clr)
+{
+    pthread_mutex_lock(&data->requirements->log_mutex);
+    pthread_mutex_lock(&data->requirements->burned_mutex);
+    if (data->requirements->burned_out)
+    {
+        pthread_mutex_unlock(&data->requirements->burned_mutex);
+        pthread_mutex_unlock(&data->requirements->log_mutex);
+        return;
+    }
+    long t = get_time() - data->start_time;
+    printf("%s%ld %d %s\n" RESET, clr, t, data->id, msg);
+    pthread_mutex_unlock(&data->requirements->log_mutex);
+    pthread_mutex_unlock(&data->requirements->burned_mutex);
+}
 
 void remove_from_queue(t_dongle *dongle)
 {
