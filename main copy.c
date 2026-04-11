@@ -84,17 +84,6 @@ void log_state(t_thread *data, char *msg, char *clr)
     printf("%s%ld %d %s\n" RESET, clr, t, id, msg);
     pthread_mutex_unlock(&data->requirements->log_mutex);
 }
-// void log_state(t_thread *data, char *msg, char *clr)
-// {
-//     long t = get_time() - data->start_time;
-//     pthread_mutex_lock(&data->requirements->log_mutex);
-//     if (!data->requirements->burned_out || strcmp(msg, "burned out") == 0)
-//     {
-//         t = get_time() - data->start_time;
-//         printf("%s%ld %d %s\n" RESET, clr, t, data->id, msg);
-//     }
-//     pthread_mutex_unlock(&data->requirements->log_mutex);
-// }
 
 void remove_from_queue(t_dongle *dongle)
 {
@@ -349,7 +338,7 @@ int lock_dongle(t_dongle *first_dongle, t_dongle *second_dongle, t_thread *data)
 
     if (data->requirements->n_coders == 1){
         pthread_mutex_unlock(&first_dongle->mutex);
-        return 0;
+        return 1;
     }
 
     // ── SECOND DONGLE ─────────────────────────────────────────
