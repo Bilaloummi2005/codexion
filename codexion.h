@@ -88,7 +88,7 @@ void	remove_from_queue(t_dongle *dongle);
 /* ═══════════════════════════ EDF HEAP ═════════════════════════════ */
 
 void		heap_swap(t_waiter *a, t_waiter *b);
-void		heap_bubble_up(t_waiter *heap, int index);
+int    		heap_bubble_up(t_waiter *heap, int index);
 void		heap_bubble_down(t_waiter *heap, int size, int index);
 void		heap_push(t_dongle *dongle, int id, long deadline);
 t_waiter	heap_pop(t_dongle *dongle);
@@ -104,5 +104,12 @@ void	realise_dongle(t_dongle *first, t_dongle *second);
 
 void	*routine(void *arg);
 void	*monitor(void *arg);
+
+// parseing
+int	init_dongles(t_dongle *dongles, int n, long cooldown);
+void	init_coder(t_thread *coder, int index, t_args *req, t_dongle *dongles);
+void	cleanup(t_dongle *dongles, int n);
+int	parse_args(t_args *req, int argc, char **argv);
+
 
 #endif

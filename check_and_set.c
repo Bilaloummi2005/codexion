@@ -33,3 +33,13 @@ void set_completed(t_args *req)
     req->completed = 1;
     pthread_mutex_unlock(&req->burned_mutex);
 }
+
+void realise_dongle(t_dongle *first_dongle, t_dongle *second_dongle){
+    first_dongle->last_release = get_time();
+    pthread_cond_broadcast(&first_dongle->cond);
+    pthread_mutex_unlock(&first_dongle->mutex);
+
+    second_dongle->last_release = get_time();
+    pthread_cond_broadcast(&second_dongle->cond);
+    pthread_mutex_unlock(&second_dongle->mutex);
+}

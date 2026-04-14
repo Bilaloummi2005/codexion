@@ -22,7 +22,6 @@ void log_state(t_thread *data, char *msg, char *clr)
     pthread_mutex_unlock(&data->requirements->log_mutex);
 }
 
-// Remove the root (the most urgent waiter)
 t_waiter heap_pop(t_dongle *dongle)
 {
     t_waiter top = dongle->edf_q[0];
@@ -31,17 +30,17 @@ t_waiter heap_pop(t_dongle *dongle)
     heap_bubble_down(dongle->edf_q, dongle->edf_size, 0);
     return top;
 }
-
-// Find a waiter by ID and update their deadline, then fix heap
 void heap_update(t_dongle *dongle, int id, long new_deadline)
 {
-    int i = 0;
+    int i;
+
+    i = 0;
     while (i < dongle->edf_size)
     {
         if (dongle->edf_q[i].id == id)
         {
             dongle->edf_q[i].deadline = new_deadline;
-            heap_bubble_up(dongle->edf_q, i);
+            i = heap_bubble_up(dongle->edf_q, i);
             heap_bubble_down(dongle->edf_q, dongle->edf_size, i);
             return;
         }
@@ -49,17 +48,18 @@ void heap_update(t_dongle *dongle, int id, long new_deadline)
     }
 }
 
-// Remove a specific waiter by ID (for when they leave without winning)
 void heap_remove_by_id(t_dongle *dongle, int id)
 {
-    int i = 0;
+    int i;
+
+    i = 0;
     while (i < dongle->edf_size)
     {
         if (dongle->edf_q[i].id == id)
         {
             dongle->edf_size--;
             dongle->edf_q[i] = dongle->edf_q[dongle->edf_size];
-            heap_bubble_up(dongle->edf_q, i);
+            i = heap_bubble_up(dongle->edf_q, i);
             heap_bubble_down(dongle->edf_q, dongle->edf_size, i);
             return;
         }

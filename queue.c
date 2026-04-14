@@ -12,17 +12,13 @@ void remove_from_queue(t_dongle *dongle)
     dongle->queue_size--;
 }
 
-// Swap two waiters in the heap
 void heap_swap(t_waiter *a, t_waiter *b)
 {
     t_waiter tmp = *a;
     *a = *b;
     *b = tmp;
 }
-
-// Bubble up: after inserting at the end
-void heap_bubble_up(t_waiter *heap, int index)
-{
+int heap_bubble_up(t_waiter *heap, int index){
     int parent;
     while (index > 0)
     {
@@ -37,9 +33,10 @@ void heap_bubble_up(t_waiter *heap, int index)
         else
             break;
     }
+    return (index);
 }
 
-// Bubble down: after removing the root
+
 void heap_bubble_down(t_waiter *heap, int size, int index)
 {
     int smallest;
@@ -60,8 +57,7 @@ void heap_bubble_down(t_waiter *heap, int size, int index)
                 || (heap[right].deadline == heap[smallest].deadline
                     && heap[right].id < heap[smallest].id)))
             smallest = right;
-        if (smallest != index)
-        {
+        if (smallest != index){
             heap_swap(&heap[index], &heap[smallest]);
             index = smallest;
         }
@@ -78,5 +74,3 @@ void heap_push(t_dongle *dongle, int id, long deadline)
     dongle->edf_size++;
     heap_bubble_up(dongle->edf_q, dongle->edf_size - 1);
 }
-
-// 

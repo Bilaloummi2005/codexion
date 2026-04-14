@@ -9,7 +9,8 @@ SRCS = main.c \
        dongles.c \
        heap_time_log.c \
        queue.c \
-       check_and_set.c
+       check_and_set.c \
+       init_parse.c
 
 OBJS = $(SRCS:.c=.o)
 

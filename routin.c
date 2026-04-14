@@ -1,58 +1,74 @@
-
 #include "codexion.h"
 
-void* routine(void *arg)
+static int	acquire_dongles(t_thread *data)
 {
-    t_thread *data = (t_thread *)arg;
-    int time_to_compile = data->requirements->time_to_compile;
-    int time_to_debug = data->requirements->time_to_debug;
-    int time_to_refactor = data->requirements->time_to_refactor;
+	if (data->id % 2)
+	{
+		if (!lock_dongle(data->right_dongle, data->left_dongle, data))
+			return (0);
+	}
+	else
+	{
+		if (!lock_dongle(data->left_dongle, data->right_dongle, data))
+			return (0);
+	}
+	return (1);
+}
 
-    while(!is_burned_out(data->requirements) && !is_completed(data->requirements)){
-        // add_to_queue(data);
-        if (data->id % 2){
-            if (!lock_dongle(data->right_dongle, data->left_dongle, data))
-                return 0;
-        }else{
-            if (!lock_dongle(data->left_dongle, data->right_dongle, data))
-                return 0;
-        }
+static void	release_dongles(t_thread *data)
+{
+	if (data->id % 2)
+		realise_dongle(data->left_dongle, data->right_dongle);
+	else
+		realise_dongle(data->right_dongle, data->left_dongle);
+}
 
-        pthread_mutex_lock(&data->state_mutex);
-        data->last_compile = get_time();
-        pthread_mutex_unlock(&data->state_mutex);
+static int	compile(t_thread *data)
+{
+	pthread_mutex_lock(&data->state_mutex);
+	data->last_compile = get_time();
+	pthread_mutex_unlock(&data->state_mutex);
+	if (is_burned_out(data->requirements))
+	{
+		release_dongles(data);
+		return (0);
+	}
+	log_state(data, "is compiling", GRN);
+	usleep(data->requirements->time_to_compile * 1000);
+	release_dongles(data);
+	pthread_mutex_lock(&data->state_mutex);
+	data->compile_count++;
+	pthread_mutex_unlock(&data->state_mutex);
+	return (1);
+}
 
-        if(is_burned_out(data->requirements)){
-            if (data->id % 2)
-                realise_dongle(data->left_dongle, data->right_dongle);
-            else
-                realise_dongle(data->right_dongle, data->left_dongle);
-            return (NULL);
-        }
+static int	rest(t_thread *data)
+{
+	if (is_burned_out(data->requirements))
+		return (0);
+	log_state(data, "is debugging", RED);
+	usleep(data->requirements->time_to_debug * 1000);
+	if (is_burned_out(data->requirements))
+		return (0);
+	log_state(data, "is refactoring", BLU);
+	usleep(data->requirements->time_to_refactor * 1000);
+	return (1);
+}
 
-        log_state(data, "is compiling", GRN);
-        usleep(time_to_compile*1000);
-        
-        if (data->id % 2)
-            realise_dongle(data->left_dongle, data->right_dongle);
-        else
-            realise_dongle(data->right_dongle, data->left_dongle);
+void	*routine(void *arg)
+{
+	t_thread	*data;
 
-        pthread_mutex_lock(&data->state_mutex);
-        data->compile_count++;
-        pthread_mutex_unlock(&data->state_mutex);
-
-        if(is_burned_out(data->requirements))
-            return (NULL);
-
-        log_state(data, "is debugging", RED);
-        usleep(time_to_debug*1000);
-        
-        if(is_burned_out(data->requirements))
-            return (NULL);
-
-        log_state(data, "is refactoring", BLU);
-        usleep(time_to_refactor * 1000);
-    }
-    return NULL;
+	data = (t_thread *)arg;
+	while (!is_burned_out(data->requirements)
+		&& !is_completed(data->requirements))
+	{
+		if (!acquire_dongles(data))
+			return (NULL);
+		if (!compile(data))
+			return (NULL);
+		if (!rest(data))
+			return (NULL);
+	}
+	return (NULL);
 }
