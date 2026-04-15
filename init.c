@@ -53,25 +53,3 @@ void	cleanup(t_dongle *dongles, int n)
 		i++;
 	}
 }
-
-int	parse_args(t_args *req, int argc, char **argv)
-{
-	if (argc != 9)
-	{
-		fprintf(stderr, "Usage: %s n burnout compile debug refactor turns cooldown scheduler\n", argv[0]);
-		return (0);
-	}
-	req->n_coders = atoi(argv[1]);
-	req->time_to_burnout = atoi(argv[2]);
-	req->time_to_compile = atoi(argv[3]);
-	req->time_to_debug = atoi(argv[4]);
-	req->time_to_refactor = atoi(argv[5]);
-	req->number_of_compiles_required = atoi(argv[6]);
-	req->dongle_cooldown = atoi(argv[7]);
-	req->scheduler = argv[8];
-	req->burned_out = 0;
-	req->completed = 0;
-	pthread_mutex_init(&req->log_mutex, NULL);
-	pthread_mutex_init(&req->burned_mutex, NULL);
-	return (1);
-}

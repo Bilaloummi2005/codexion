@@ -40,7 +40,7 @@ All arguments are mandatory and must be positive integers, except `scheduler` wh
 ./codexion 5 800 200 200 200 7 0 fifo
 
 # 4 coders with EDF scheduling and 60ms dongle cooldown
-./codexion 4 500 200 100 100 10 60 edf
+./codexion 4 600 200 100 100 10 60 edf
 ```
 
 ## Blocking cases handled
