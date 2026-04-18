@@ -1,22 +1,23 @@
+/* ************************************************************************** */
+/*                                                                            */
+/*                                                        :::      ::::::::   */
+/*   dongles.c                                          :+:      :+:    :+:   */
+/*                                                    +:+ +:+         +:+     */
+/*   By: boummi <marvin@42.fr>                      +#+  +:+       +#+        */
+/*                                                +#+#+#+#+#+   +#+           */
+/*   Created: 2026/04/17 20:59:01 by boummi            #+#    #+#             */
+/*   Updated: 2026/04/17 20:59:05 by boummi           ###   ########.fr       */
+/*                                                                            */
+/* ************************************************************************** */
+
 #include "codexion.h"
 
-static int	enqueue(t_dongle *dongle, t_thread *data, int use_edf)
-{
-	if (use_edf)
-		heap_push(dongle, data->id, data->deadline);
-	else
-	{
-		dongle->queue[dongle->queue_size] = data->id;
-		dongle->queue_size++;
-	}
-	return (1);
-}
-
-static int	is_my_turn(t_dongle *dongle, t_thread *data, int use_edf, long cooldown)
+int	is_my_turn(t_dongle *dongle, t_thread *data, int use_edf, long cooldown)
 {
 	if (use_edf)
 	{
-		data->deadline = data->last_compile + data->requirements->time_to_burnout;
+		data->deadline = (data->last_compile
+				+ data->requirements->time_to_burnout);
 		heap_update(dongle, data->id, data->deadline);
 		if (dongle->edf_q[0].id == data->id
 			&& get_time() - dongle->last_release >= cooldown)
@@ -31,7 +32,7 @@ static int	is_my_turn(t_dongle *dongle, t_thread *data, int use_edf, long cooldo
 	return (0);
 }
 
-static void	wait_on_dongle(t_dongle *dongle)
+void	wait_on_dongle(t_dongle *dongle)
 {
 	struct timespec	ts;
 
@@ -45,7 +46,8 @@ static void	wait_on_dongle(t_dongle *dongle)
 	pthread_cond_timedwait(&dongle->cond, &dongle->mutex, &ts);
 }
 
-static int	wait_for_dongle(t_dongle *dongle, t_thread *data, int use_edf, long cooldown)
+int	wait_for_dongle(t_dongle *dongle,
+		t_thread *data, int use_edf, long cooldown)
 {
 	while (1)
 	{
@@ -69,7 +71,7 @@ static int	wait_for_dongle(t_dongle *dongle, t_thread *data, int use_edf, long c
 	return (1);
 }
 
-static int	acquire_one(t_dongle *dongle, t_thread *data, int use_edf, long cooldown)
+int	acquire_one(t_dongle *dongle, t_thread *data, int use_edf, long cooldown)
 {
 	pthread_mutex_lock(&dongle->mutex);
 	enqueue(dongle, data, use_edf);

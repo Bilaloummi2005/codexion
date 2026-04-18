@@ -1,3 +1,15 @@
+/* ************************************************************************** */
+/*                                                                            */
+/*                                                        :::      ::::::::   */
+/*   routin.c                                           :+:      :+:    :+:   */
+/*                                                    +:+ +:+         +:+     */
+/*   By: boummi <marvin@42.fr>                      +#+  +:+       +#+        */
+/*                                                +#+#+#+#+#+   +#+           */
+/*   Created: 2026/04/18 12:00:00 by boummi            #+#    #+#             */
+/*   Updated: 2026/04/18 12:00:00 by boummi           ###   ########.fr       */
+/*                                                                            */
+/* ************************************************************************** */
+
 #include "codexion.h"
 
 static int	acquire_dongles(t_thread *data)
@@ -34,7 +46,11 @@ static int	compile(t_thread *data)
 		return (0);
 	}
 	log_state(data, "is compiling", GRN);
-	usleep(data->requirements->time_to_compile * 1000);
+	if (!ft_usleep(data->requirements->time_to_compile, data->requirements))
+	{
+		release_dongles(data);
+		return (0);
+	}
 	release_dongles(data);
 	pthread_mutex_lock(&data->state_mutex);
 	data->compile_count++;
@@ -47,11 +63,11 @@ static int	rest(t_thread *data)
 	if (is_burned_out(data->requirements))
 		return (0);
 	log_state(data, "is debugging", RED);
-	usleep(data->requirements->time_to_debug * 1000);
-	if (is_burned_out(data->requirements))
+	if (!ft_usleep(data->requirements->time_to_debug, data->requirements))
 		return (0);
 	log_state(data, "is refactoring", BLU);
-	usleep(data->requirements->time_to_refactor * 1000);
+	if (!ft_usleep(data->requirements->time_to_refactor, data->requirements))
+		return (0);
 	return (1);
 }
 

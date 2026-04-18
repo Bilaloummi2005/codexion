@@ -7,15 +7,19 @@ SRCS = main.c \
        routin.c \
        monitor.c \
        dongles.c \
-       heap_time_log.c \
+       heap.c \
        queue.c \
        check_and_set.c \
        init.c \
-       parsing.c
+       parsing.c \
+       utils.c
 
 OBJS = $(SRCS:.c=.o)
 
 all: $(NAME)
+
+sanitize: $(OBJS)
+	$(CC) -fsanitize=thread $(CFLAGS) $(OBJS) -o $(NAME)
 
 $(NAME): $(OBJS)
 	$(CC) $(CFLAGS) $(OBJS) -o $(NAME)
