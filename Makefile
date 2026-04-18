@@ -3,16 +3,16 @@ NAME = codexion
 CC = cc
 CFLAGS = -Wall -Wextra -Werror -pthread
 
-SRCS = main.c \
-       routin.c \
-       monitor.c \
-       dongles.c \
-       heap.c \
-       queue.c \
-       check_and_set.c \
-       init.c \
-       parsing.c \
-       utils.c
+SRCS = coders/main.c \
+       coders/routin.c \
+       coders/monitor.c \
+       coders/dongles.c \
+       coders/heap.c \
+       coders/queue.c \
+       coders/check_and_set.c \
+       coders/init.c \
+       coders/parsing.c \
+       coders/utils.c
 
 OBJS = $(SRCS:.c=.o)
 
@@ -24,7 +24,7 @@ sanitize: $(OBJS)
 $(NAME): $(OBJS)
 	$(CC) $(CFLAGS) $(OBJS) -o $(NAME)
 
-%.o: %.c codexion.h
+%.o: %.c coders/codexion.h
 	$(CC) $(CFLAGS) -c $< -o $@
 
 clean:
@@ -35,4 +35,4 @@ fclean: clean
 
 re: fclean all
 
-.PHONY: all clean fclean re
+.PHONY: all sanitize clean fclean re

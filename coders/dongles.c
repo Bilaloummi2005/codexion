@@ -16,9 +16,6 @@ int	is_my_turn(t_dongle *dongle, t_thread *data, int use_edf, long cooldown)
 {
 	if (use_edf)
 	{
-		data->deadline = (data->last_compile
-				+ data->requirements->time_to_burnout);
-		heap_update(dongle, data->id, data->deadline);
 		if (dongle->edf_q[0].id == data->id
 			&& get_time() - dongle->last_release >= cooldown)
 			return (1);
@@ -35,9 +32,11 @@ int	is_my_turn(t_dongle *dongle, t_thread *data, int use_edf, long cooldown)
 void	wait_on_dongle(t_dongle *dongle)
 {
 	struct timespec	ts;
+	struct timeval	tv;
 
-	clock_gettime(CLOCK_REALTIME, &ts);
-	ts.tv_nsec += 1000 * 1000;
+	gettimeofday(&tv, NULL);
+	ts.tv_sec = tv.tv_sec;
+	ts.tv_nsec = tv.tv_usec * 1000 + 1000 * 1000;
 	if (ts.tv_nsec >= 1000000000)
 	{
 		ts.tv_sec++;

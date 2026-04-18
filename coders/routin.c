@@ -21,6 +21,7 @@ static int	acquire_dongles(t_thread *data)
 	}
 	else
 	{
+		usleep(1000);
 		if (!lock_dongle(data->left_dongle, data->right_dongle, data))
 			return (0);
 	}
