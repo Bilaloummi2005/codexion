@@ -80,7 +80,7 @@ typedef struct s_thread
 
 long	get_time(void);
 int		ft_usleep(long ms, t_args *req);
-
+git@github.com:esut/GestionScolaire.git
 /* ════════════════════════════ LOGGING ═════════════════════════════ */
 
 void	log_state(t_thread *data, char *msg, char *clr);

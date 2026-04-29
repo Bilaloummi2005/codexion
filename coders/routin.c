@@ -74,17 +74,17 @@ static int	rest(t_thread *data)
 
 void	*routine(void *arg)
 {
-	t_thread	*data;
+	t_thread	*coder;
 
-	data = (t_thread *)arg;
-	while (!is_burned_out(data->requirements)
-		&& !is_completed(data->requirements))
+	coder = (t_thread *)arg;
+	while (!is_burned_out(coder->requirements)
+		&& !is_completed(coder->requirements))
 	{
-		if (!acquire_dongles(data))
+		if (!acquire_dongles(coder))
 			return (NULL);
-		if (!compile(data))
+		if (!compile(coder))
 			return (NULL);
-		if (!rest(data))
+		if (!rest(coder))
 			return (NULL);
 	}
 	return (NULL);

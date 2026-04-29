@@ -59,7 +59,7 @@ void	heap_bubble_down(t_waiter *heap, int size, int index)
 	int	smallest;
 	int	left;
 	int	right;
-
+	[12, 4, 7, 9, 10]
 	while (1)
 	{
 		smallest = index;
